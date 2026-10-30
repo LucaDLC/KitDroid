@@ -1,0 +1,42 @@
+# Build output, if something is compiled inside the folder
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.new
+*.old.*
+.build-*.sha256
+
+# Files the scripts create at run time (they go to %LOCALAPPDATA%\WSA-ApkInstaller, but a run from the repo leaves them here)
+apk.ico
+droid.png
+shell.log
+debug.flag
+
+# Downloads and tool copies: Google's binaries are never committed
+platform-tools/
+adb/
+aapt2/
+*.apk
+*.7z
+*.zip
+
+# Logs and captured output
+*.log
+*.out.txt
+*.err.txt
+
+# Editors and local tools
+.vs/
+.vscode/
+.idea/
+.claude/
+*.swp
+*~
+
+# Windows files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
