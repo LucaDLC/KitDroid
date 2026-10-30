@@ -9,6 +9,15 @@
 # -NoSmallIcons          non registra il gestore delle icone piccole (gira dentro explorer.exe)
 # -Force                 riscarica ADB e aapt2 e ricompila
 # -InstallDir            dove installare, default %LOCALAPPDATA%\WSA-ApkInstaller
+#
+# KitDroid: installs the tool "double-click an .apk -> confirm -> install in WSA" for the current user.
+# No administrator rights are needed, except to install WSA itself.
+# -InstallWsa            if WSA is missing, downloads and installs the newest build (see Install-Wsa.ps1); without WSA, Setup stops
+# -EnableDeveloperMode   turns on WSA debugging without asking (opens the ADB port, see README)
+# -RestartExplorer       restarts File Explorer so the icons load right away
+# -NoSmallIcons          does not register the small-icon handler (it runs inside explorer.exe)
+# -Force                 downloads ADB and aapt2 again and rebuilds
+# -InstallDir            where to install, default %LOCALAPPDATA%\WSA-ApkInstaller
 
 [CmdletBinding()]
 param(
@@ -20,14 +29,14 @@ param(
     [switch]$Force
 )
 $ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'      # senza barra di avanzamento Invoke-WebRequest è molto più veloce
+$ProgressPreference = 'SilentlyContinue'      # senza barra di avanzamento Invoke-WebRequest è molto più veloce / without a progress bar, Invoke-WebRequest is much faster
 $Kit = $PSScriptRoot
 
 function Step([string]$Text) { Write-Host "`n==> $Text" -ForegroundColor Cyan }
 function Ok([string]$Text)   { Write-Host "    ok: $Text" -ForegroundColor Green }
 function Warn([string]$Text) { Write-Host "    warning: $Text" -ForegroundColor Yellow }
 
-# ---------- 0. controlli ----------
+# ---------- 0. controlli / 0. checks ----------
 Step 'Checking prerequisites'
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'A 64-bit Windows is required.' }
 if ($PSVersionTable.PSVersion.Major -ne 5) { Warn "Written for Windows PowerShell 5.1 (this is $($PSVersionTable.PSVersion)); run it with powershell.exe if something fails." }
@@ -44,6 +53,7 @@ if ($wsa) {
     if ($wsa.Version -ne '2407.40000.4.0') { Warn 'The kit was made and tested with WSA 2407.40000.4.0; this version may behave differently.' }
 } else {
     # senza WSA non c'è niente da configurare
+    # without WSA there is nothing to configure
     Warn 'Windows Subsystem for Android is NOT installed.'
     Write-Host '    The kit takes it from the community repository https://github.com/MustardChef/WSABuilds/releases (newest build).'
     $doInstall = [bool]$InstallWsa
@@ -61,7 +71,7 @@ if ($wsa) {
 Ok "install folder: $InstallDir"
 New-Item -ItemType Directory -Force $InstallDir, "$InstallDir\bin" | Out-Null
 
-# ---------- 1. strumenti ----------
+# ---------- 1. strumenti / 1. tools ----------
 $adbExe  = Join-Path $InstallDir 'bin\adb\adb.exe'
 $aaptExe = Join-Path $InstallDir 'bin\aapt2\aapt2.exe'
 
@@ -113,21 +123,23 @@ if ($Force -or -not (Test-Path $aaptExe)) {
     } finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
 } else { Ok 'aapt2 already installed (use -Force to download again)' }
 
-# ---------- 2. compilazione ----------
+# ---------- 2. compilazione / 2. build ----------
 Step 'Drawing icons'
 & (Join-Path $Kit 'scripts\Build-Assets.ps1') -OutDir $InstallDir
 Ok 'apk.ico, droid.png'
 
 Step 'Compiling launcher and Explorer extension'
-Remove-Item "$InstallDir\*.old.*" -Force -ErrorAction SilentlyContinue      # copie messe da parte da un'esecuzione precedente
+Remove-Item "$InstallDir\*.old.*" -Force -ErrorAction SilentlyContinue      # copie messe da parte da un'esecuzione precedente / copies set aside by an earlier run
 function Compile([string]$Out, [string[]]$CscArgs, [string[]]$Inputs) {
     $target = Join-Path $InstallDir $Out
     # se sorgenti e opzioni non sono cambiati non ricompilo (e non tocco una DLL già caricata da Explorer)
+    # if sources and options have not changed, it does not rebuild (and does not touch a DLL Explorer has already loaded)
     $mark = Join-Path $InstallDir ".build-$Out.sha256"
     $text = (($Inputs | ForEach-Object { (Get-FileHash $_ -Algorithm SHA256).Hash }) -join '') + '|' + ($CscArgs -join ' ')
     $sig = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($text))).Replace('-', '')
     if (-not $Force -and (Test-Path $target) -and (Test-Path $mark) -and ((Get-Content $mark -Raw).Trim() -eq $sig)) { Ok "$Out is up to date"; return }
     # csc dà all'assembly il nome del file di output: compilo col nome finale in una cartella temporanea e poi sposto
+    # csc names the assembly after the output file: it builds with the final name in a temporary folder, then moves it
     $stage = Join-Path ([IO.Path]::GetTempPath()) ('wsaapk_build_' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory $stage | Out-Null
     try {
@@ -153,7 +165,7 @@ $wb = (Get-ChildItem "$env:WINDIR\Microsoft.NET\assembly\GAC_MSIL\WindowsBase" -
 $refs = @("$fw\System.Drawing.dll", "$fw\System.IO.Compression.dll", "$fw\System.Core.dll", "$fw\System.Xaml.dll", "$fw\WPF\PresentationCore.dll", $wb) | ForEach-Object { "/r:$_" }
 Compile 'ApkShell.dll' (@('/target:library') + $refs + (Join-Path $Kit 'src\ApkShell.cs')) @((Join-Path $Kit 'src\ApkShell.cs'))
 
-# ---------- 3. script ----------
+# ---------- 3. script / 3. scripts ----------
 Step 'Copying scripts'
 Copy-Item (Join-Path $Kit 'scripts\ApkInstaller.ps1') $InstallDir -Force
 Copy-Item (Join-Path $Kit 'scripts\strings.json') $InstallDir
@@ -162,13 +174,14 @@ Copy-Item (Join-Path $Kit 'scripts\Remove-Association.ps1') $InstallDir -Force
 Copy-Item (Join-Path $Kit 'Enable-WsaDeveloperMode.ps1') $InstallDir -Force
 Ok 'ApkInstaller.ps1, Enable-WsaDeveloperMode.ps1'
 
-# ---------- 4. registrazione ----------
+# ---------- 4. registrazione / 4. registration ----------
 Step 'Registering .apk (current user)'
 $regArgs = @{ InstallDir = $InstallDir }
 if ($NoSmallIcons) { $regArgs.NoSmallIcons = $true }
 & (Join-Path $InstallDir 'Register-Association.ps1') @regArgs
 
 # il gestore delle icone gira dentro explorer.exe: lo lascio registrato solo se si carica
+# the icon handler runs inside explorer.exe: it stays registered only if it loads
 if (-not $NoSmallIcons) {
     $loaded = $false
     try {
@@ -183,7 +196,7 @@ if (-not $NoSmallIcons) {
     }
 }
 
-# ---------- 5. debug di WSA (serve per installare gli APK) ----------
+# ---------- 5. debug di WSA (serve per installare gli APK) / 5. WSA debugging (needed to install APKs) ----------
 $devModeDone = $false
 if ($wsa) {
     $doDev = [bool]$EnableDeveloperMode
@@ -200,6 +213,7 @@ if ($wsa) {
             $devModeDone = $true
         } catch {
             # il resto è già installato: il popup potrà farlo al primo uso
+            # the rest is already installed: the popup can do it on first use
             Warn "could not turn on Developer mode now: $($_.Exception.Message)"
         }
     }

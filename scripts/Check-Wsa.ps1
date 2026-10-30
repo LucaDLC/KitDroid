@@ -1,5 +1,8 @@
 ﻿# Mostra lo stato di WSA e di KitDroid: pacchetto, avvio, debug, ADB, installazione del kit e ultima build disponibile.
 # Non modifica niente.
+#
+# Shows the state of WSA and KitDroid: package, start, debugging, ADB, kit installation and the newest available build.
+# Changes nothing.
 $ErrorActionPreference = 'Continue'
 $Kit = Split-Path $PSScriptRoot -Parent
 $InstallDir = Join-Path $env:LOCALAPPDATA 'WSA-ApkInstaller'

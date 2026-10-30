@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 
 // Launcher senza finestra: Windows lo lancia per i .apk e lui avvia ApkInstaller.ps1 nascosto.
+// Windowless launcher: Windows runs it for .apk files, and it starts ApkInstaller.ps1 hidden.
 static class Launcher
 {
     [STAThread]

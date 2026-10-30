@@ -13,6 +13,19 @@
 # -ExtractOnly     scarica ed estrae ma non installa
 # -Force           non chiede conferma
 # -IgnoreExisting  solo per i test: continua anche se WSA è già installata
+#
+# Installs WSA if it is missing, taking the newest build from the community repository
+# https://github.com/MustardChef/WSABuilds/releases: the newest Windows 11 x64 release that has the file
+# WSA_<version>_x64_Release-Nightly-NoGApps-NoAmazon.7z. It checks the size and SHA-256 published by GitHub.
+# If the repository or the file is missing, it stops with an error and does nothing else.
+# Then it extracts the archive and runs its Install.ps1 as administrator (UAC). The WSA folder must stay where it is.
+# -CheckOnly       shows which build would be downloaded, without downloading
+# -ArchivePath     uses an archive already downloaded (it cannot be verified)
+# -ParentDir       where to create WSA_<version>_x64, default C:\
+# -Repository      another GitHub repository, default MustardChef/WSABuilds
+# -ExtractOnly     downloads and extracts but does not install
+# -Force           does not ask for confirmation
+# -IgnoreExisting  for tests only: continues even if WSA is already installed
 [CmdletBinding()]
 param(
     [string]$ParentDir = ($env:SystemDrive + '\'),
@@ -27,7 +40,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $Repo    = $Repository
-$Variant = '_x64_Release-Nightly-NoGApps-NoAmazon.7z'      # la build con cui è stato fatto e provato
+$Variant = '_x64_Release-Nightly-NoGApps-NoAmazon.7z'      # la build con cui è stato fatto e provato / the build the kit was made and tested with
 $Package = 'MicrosoftCorporationII.WindowsSubsystemForAndroid'
 
 function Say([string]$t)  { Write-Host "    $t" }
@@ -37,6 +50,7 @@ function Fail([string]$why) {
 }
 
 # la release più recente per Windows 11 x64 che ha il file giusto
+# the newest Windows 11 x64 release that has the right file
 function Get-LatestWsaBuild {
     try {
         $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=100" -Headers @{ 'User-Agent' = 'wsa-apk-kit' } -TimeoutSec 60
@@ -57,7 +71,7 @@ if ($installed -and -not ($IgnoreExisting -and ($ExtractOnly -or $CheckOnly))) {
 if ([Environment]::OSVersion.Version.Build -lt 22000) { throw 'WSA needs Windows 11 (build 22000 or later).' }
 if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { throw 'This kit installs the x64 build of WSA: it needs a 64-bit Intel/AMD Windows.' }
 
-# ---- cosa scaricare ----
+# ---- cosa scaricare / what to download ----
 $work = Join-Path ([IO.Path]::GetTempPath()) 'wsa-apk-kit-download'
 New-Item -ItemType Directory -Force $work | Out-Null
 $archive = $ArchivePath
@@ -79,7 +93,7 @@ if ($archive) {
     if ($CheckOnly) { Say 'CheckOnly: nothing downloaded.'; return }
 }
 
-$folder = $fileName -replace '_Release-.*$', ''            # cartella radice dell'archivio, es. WSA_2407.40000.4.0_x64
+$folder = $fileName -replace '_Release-.*$', ''            # cartella radice dell'archivio, es. WSA_2407.40000.4.0_x64 / root folder of the archive, e.g. WSA_2407.40000.4.0_x64
 $target = Join-Path $ParentDir $folder
 if (Test-Path $target) { throw "$target already exists but WSA is not registered. Run its Install.ps1 as administrator, or delete the folder and run this again." }
 $drive = Get-PSDrive -Name ($ParentDir.Substring(0, 1)) -ErrorAction SilentlyContinue
@@ -108,7 +122,7 @@ if (-not $archive) {
     } else { Say 'Size matches.' }
 }
 
-# ---- estrazione ----
+# ---- estrazione / extraction ----
 Step "Extracting to $ParentDir"
 $sevenZip = @((Get-Command 7z -ErrorAction SilentlyContinue).Source, 'C:\Program Files\7-Zip\7z.exe', 'C:\Program Files (x86)\7-Zip\7z.exe') |
     Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
@@ -118,6 +132,7 @@ if ($sevenZip) {
     if ($LASTEXITCODE -ne 0) { throw "7-Zip failed (exit code $LASTEXITCODE)." }
 } else {
     # Windows 11 ha bsdtar, che legge i .7z
+    # Windows 11 includes bsdtar, which reads .7z files
     $tar = Join-Path $env:WINDIR 'System32\tar.exe'
     if (-not (Test-Path $tar)) { throw 'Cannot extract a .7z: install 7-Zip (https://www.7-zip.org) and run this again.' }
     & $tar -xf $archive -C $ParentDir
@@ -128,7 +143,7 @@ Say "extracted: $target"
 
 if ($ExtractOnly) { Say 'ExtractOnly: not running the installer.'; return }
 
-# ---- installazione (amministratore) ----
+# ---- installazione (amministratore) / installation (administrator) ----
 Step 'Installing WSA (a UAC prompt will appear)'
 Say 'The installer window may ask to restart Windows (Virtual Machine Platform). If so, restart and run Setup.ps1 again.'
 $ps = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -136,7 +151,7 @@ $p = Start-Process -FilePath $ps -Verb RunAs -WorkingDirectory $target -PassThru
         -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $target 'Install.ps1')
 if (Get-AppxPackage -Name $Package -ErrorAction SilentlyContinue) {
     Say 'WSA is installed.'
-    Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue      # l'archivio non serve più
+    Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue      # l'archivio non serve più / the archive is no longer needed
 } else {
     throw 'WSA does not show up as installed. If Windows asked for a restart, restart and run this again; otherwise run Install.ps1 in the extracted folder as administrator and read its messages.'
 }

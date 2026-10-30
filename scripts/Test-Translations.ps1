@@ -1,5 +1,8 @@
 ﻿# Controlla scripts\strings.json: ogni lingua deve avere le stesse voci dell'inglese e gli stessi segnaposto {0}/{1}.
 # Da lanciare dopo aver modificato una traduzione.
+#
+# Checks scripts\strings.json: every language must have the same keys as English and the same {0}/{1} placeholders.
+# Run it after editing a translation.
 $ErrorActionPreference = 'Stop'
 $file = Join-Path $PSScriptRoot 'strings.json'
 $json = [IO.File]::ReadAllText($file) | ConvertFrom-Json

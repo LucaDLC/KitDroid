@@ -5,6 +5,9 @@ cd /d "%~dp0"
 
 rem Menu di KitDroid. Chiede i permessi di amministratore e poi propone: installa, disinstalla, controlla WSA.
 rem Con "RUN.bat /noadmin" salta la richiesta dei permessi (utile solo per provare il menu).
+rem
+rem KitDroid menu. It asks for administrator rights, then offers: install, uninstall, check WSA.
+rem With "RUN.bat /noadmin" the administrator request is skipped (only useful to test the menu).
 
 if /i "%~1"=="/noadmin" goto menu
 net session >nul 2>&1

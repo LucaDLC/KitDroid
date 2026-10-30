@@ -1,5 +1,8 @@
 ﻿# Toglie ciò che ha installato Setup.ps1: associazione .apk, anteprime e icone (HKCU) e cartella di installazione.
 # Non tocca WSA né la sua modalità sviluppatore.
+#
+# Removes what Setup.ps1 installed: the .apk association, thumbnails and icons (HKCU) and the install folder.
+# Does not touch WSA or its developer mode.
 [CmdletBinding()]
 param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'WSA-ApkInstaller')

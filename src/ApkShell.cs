@@ -18,6 +18,11 @@ using System.Text.RegularExpressions;
 //  ApkThumbnailProvider: anteprima con l'icona dell'app nelle viste a icone medie e grandi (gira in dllhost).
 //  ApkIconHandler: la stessa icona nelle viste piccole (Dettagli, Elenco). Gira dentro explorer.exe, quindi
 //  tutto è in try/catch, ricade su apk.ico (accanto alla DLL) e non apre mai file di rete.
+//
+// Explorer integration for .apk files, registered per user (HKCU) by Register-Association.ps1:
+// ApkThumbnailProvider: thumbnail with the app icon in medium and large icon views (runs in dllhost).
+// ApkIconHandler: the same icon in small views (Details, List). It runs inside explorer.exe, so
+// everything is in try/catch, falls back to apk.ico (next to the DLL) and never opens network files.
 namespace ApkShell
 {
     public enum WTS_ALPHATYPE { WTSAT_UNKNOWN = 0, WTSAT_RGB = 1, WTSAT_ARGB = 2 }
@@ -39,6 +44,9 @@ namespace ApkShell
     {
         // szIconFile è il buffer del chiamante: lo scrivo a mano (WriteBuffer) perché uno StringBuilder
         // non viene copiato indietro in modo affidabile quando la chiamata arriva da codice nativo.
+        //
+        // szIconFile is the caller's buffer: I write it by hand (WriteBuffer) because a StringBuilder
+        // is not reliably copied back when the call comes from native code.
         [PreserveSig]
         int GetIconLocation(uint uFlags, IntPtr szIconFile, uint cchMax, out int piIndex, out uint pwFlags);
         [PreserveSig]
@@ -57,6 +65,7 @@ namespace ApkShell
         }
 
         // Diagnostica: se accanto alla DLL c'è un file debug.flag, scrive delle righe in shell.log.
+        // Diagnostics: if a debug.flag file is next to the DLL, it writes lines to shell.log.
         public static void Log(string message)
         {
             try
@@ -70,6 +79,7 @@ namespace ApkShell
         }
 
         // copia s più il NUL finale in un buffer nativo di cch caratteri; false se non ci sta
+        // copies s plus the final NUL into a native buffer of cch characters; false if it does not fit
         public static bool WriteBuffer(IntPtr buffer, uint cch, string s)
         {
             if (buffer == IntPtr.Zero || s == null || s.Length + 1 > cch) return false;
@@ -96,7 +106,7 @@ namespace ApkShell
         }
     }
 
-    // ---------------------------------------------------------------- anteprime (icone grandi)
+    // ---------------------------------------------------------------- anteprime (icone grandi) / thumbnails (large icons)
 
     [ComVisible(true), Guid("7B3F2A6E-5C1D-4E8B-9A44-0D6C1F2E8A91"), ClassInterface(ClassInterfaceType.None)]
     public class ApkThumbnailProvider : IInitializeWithStream, IThumbnailProvider
@@ -128,7 +138,7 @@ namespace ApkShell
         }
     }
 
-    // ---------------------------------------------------------------- icone (viste piccole)
+    // ---------------------------------------------------------------- icone (viste piccole) / icons (small views)
 
     [ComVisible(true), Guid("2D9E6B14-8F3A-4C75-A1B0-5E7C93D4F206"), ClassInterface(ClassInterfaceType.None)]
     public class ApkIconHandler : IPersistFile, IExtractIconW
@@ -138,6 +148,7 @@ namespace ApkShell
         bool probed;
 
         // IPersistFile: Explorer ci dice per quale file vuole l'icona
+        // IPersistFile: Explorer tells us which file it wants the icon for
         public void GetClassID(out Guid pClassID) { pClassID = typeof(ApkIconHandler).GUID; }
         public int IsDirty() { return Native.S_FALSE; }
         public void Load(string pszFileName, int dwMode) { path = pszFileName; Native.Log("Load " + pszFileName); }
@@ -153,8 +164,8 @@ namespace ApkShell
             {
                 if (string.IsNullOrEmpty(path)) return;
                 string root = Path.GetPathRoot(path);
-                if (string.IsNullOrEmpty(root) || root.StartsWith(@"\\", StringComparison.Ordinal)) return;     // mai file di rete
-                if (new DriveInfo(root).DriveType != DriveType.Fixed) return;                                   // né unità rimovibili o ottiche
+                if (string.IsNullOrEmpty(root) || root.StartsWith(@"\\", StringComparison.Ordinal)) return;     // mai file di rete / never network files
+                if (new DriveInfo(root).DriveType != DriveType.Fixed) return;                                   // né unità rimovibili o ottiche / nor removable or optical drives
                 var fi = new FileInfo(path);
                 if (!fi.Exists || fi.Length > 3L * 1024 * 1024 * 1024) return;
                 using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
@@ -177,6 +188,9 @@ namespace ApkShell
                 Probe();
                 // L'icona la crea Extract(). Come nome do il percorso dell'APK (mai "*": vorrebbe dire indice
                 // nella lista icone di sistema); GIL_NOTFILENAME dice che non è un file da cui leggerla.
+                //
+                // Extract() creates the icon. The name I give is the APK path (never "*": that would mean an index
+                // into the system icon list); GIL_NOTFILENAME says it is not a file to read the icon from.
                 if (icon != null && Native.WriteBuffer(szIconFile, cchMax, path))
                 {
                     piIndex = 0;
@@ -185,6 +199,7 @@ namespace ApkShell
                     return Native.S_OK;
                 }
                 // nessuna icona nell'APK: indico apk.ico, che sta accanto a questa DLL
+                // no icon in the APK: I point to apk.ico, next to this DLL
                 string dir = Native.DllDirectory();
                 string ico = dir == null ? null : Path.Combine(dir, "apk.ico");
                 if (ico != null && File.Exists(ico) && Native.WriteBuffer(szIconFile, cchMax, ico))
@@ -206,7 +221,7 @@ namespace ApkShell
             try
             {
                 Probe();
-                if (icon == null) return Native.S_FALSE;        // Explorer la estrae dal file indicato da GetIconLocation
+                if (icon == null) return Native.S_FALSE;        // Explorer la estrae dal file indicato da GetIconLocation / Explorer extracts it from the file indicated by GetIconLocation
                 int large = (int)(nIconSize & 0xFFFF);
                 int small = (int)(nIconSize >> 16);
                 if (large <= 0) large = 32;
@@ -220,9 +235,10 @@ namespace ApkShell
         }
     }
 
-    // ---------------------------------------------------------------- parti comuni
+    // ---------------------------------------------------------------- parti comuni / shared code
 
     // Stream di sola lettura, con Seek, sopra lo stream COM di Explorer (senza copiare tutto l'APK).
+    // Read-only stream with Seek, on top of Explorer's COM stream (without copying the whole APK).
     sealed class ComStream : Stream
     {
         readonly IStream s;
@@ -270,6 +286,10 @@ namespace ApkShell
     // Trova l'icona esatta come fa Android: AndroidManifest.xml (XML binario) indica la risorsa e resources.arsc
     // la associa a un file dell'APK. Funziona anche con i nomi delle risorse offuscati. Le icone adattive si
     // compongono da livelli bitmap o colore; i livelli vettoriali non sono supportati (restituisce null).
+    //
+    // Finds the exact icon the way Android does: AndroidManifest.xml (binary XML) names the resource and resources.arsc
+    // maps it to a file in the APK. It also works with obfuscated resource names. Adaptive icons are
+    // composed from bitmap or colour layers; vector layers are not supported (returns null).
     static class ApkResolve
     {
         const ushort RES_STRING_POOL = 0x0001, RES_XML_START_ELEMENT = 0x0102, RES_XML_RESOURCE_MAP = 0x0180,
@@ -320,12 +340,12 @@ namespace ApkShell
             }
         }
 
-        // ----- XML binario: scorre gli elementi e passa il riferimento dell'attributo cercato
+        // ----- XML binario: scorre gli elementi e passa il riferimento dell'attributo cercato / binary XML: walks the elements and returns the reference of the wanted attribute
         static void WalkXml(byte[] m, Func<string, uint, bool> onElement, uint wantedAttr)
         {
             Pool pool = null;
             uint[] resMap = null;
-            int pos = U16(m, 2);                     // dimensione dell'header XML
+            int pos = U16(m, 2);                     // dimensione dell'header XML / XML header size
             while (pos + 8 <= m.Length)
             {
                 ushort type = U16(m, pos);
@@ -355,7 +375,7 @@ namespace ApkShell
             }
         }
 
-        // ----- resources.arsc
+        // ----- resources.arsc / resource table
         struct Val { public int Density; public byte Type; public uint Data; }
 
         sealed class Table
@@ -382,6 +402,7 @@ namespace ApkShell
             public string Str(uint i) { return strings == null ? null : strings.Get(i); }
 
             // tutte le configurazioni di una risorsa, seguendo i riferimenti
+            // all configurations of one resource, following references
             public System.Collections.Generic.List<Val> Values(uint id, int depth = 0)
             {
                 var res = new System.Collections.Generic.List<Val>();
@@ -405,7 +426,7 @@ namespace ApkShell
                             int density = U16(d, pos + 34);      // ResTable_config.density
                             int offsets = pos + hs;
                             long entryOffset = -1;
-                            if ((flags & 0x01) != 0)             // sparse: coppie (indice, offset/4)
+                            if ((flags & 0x01) != 0)             // sparse: coppie (indice, offset/4) / sparse: pairs (index, offset/4)
                             {
                                 for (int i = 0; i < entryCount; i++)
                                 {
@@ -413,7 +434,7 @@ namespace ApkShell
                                     if ((v & 0xFFFF) == entry) { entryOffset = (long)(v >> 16) * 4; break; }
                                 }
                             }
-                            else if ((flags & 0x02) != 0)        // offset a 16 bit, in unità di 4
+                            else if ((flags & 0x02) != 0)        // offset a 16 bit, in unità di 4 / 16-bit offsets, in units of 4
                             {
                                 if (entry < entryCount) { ushort o = U16(d, offsets + 2 * entry); if (o != 0xFFFF) entryOffset = (long)o * 4; }
                             }
@@ -426,7 +447,7 @@ namespace ApkShell
                             {
                                 int e = pos + (int)entriesStart + (int)entryOffset;
                                 ushort eflags = U16(d, e + 2);
-                                if ((eflags & 0x0001) == 0 && (eflags & 0x0008) == 0)   // né mappa (complessa) né voce compatta
+                                if ((eflags & 0x0001) == 0 && (eflags & 0x0008) == 0)   // né mappa (complessa) né voce compatta / neither a (complex) map nor a compact entry
                                 {
                                     var v = new Val { Density = density, Type = d[e + 8 + 3], Data = U32(d, e + 8 + 4) };
                                     if (v.Type == TYPE_REFERENCE && depth < 5 && v.Data != 0) res.AddRange(Values(v.Data, depth + 1));
@@ -444,6 +465,7 @@ namespace ApkShell
         static int Rank(int density)
         {
             // prima le densità vere (più alta è meglio); anydpi (0xFFFE) e nodpi (0xFFFF) valgono ma vengono dopo
+            // real densities first (higher is better); anydpi (0xFFFE) and nodpi (0xFFFF) are valid but come after
             if (density == 0xFFFE || density == 0xFFFF) return 1;
             return density == 0 ? 160 : density;
         }
@@ -467,7 +489,7 @@ namespace ApkShell
             var vals = t.Values(id);
             string p = BestBitmapPath(t, vals, zip);
             if (p != null) return ApkIcon.Load(zip.GetEntry(p));
-            foreach (Val v in vals)   // livello a tinta unita
+            foreach (Val v in vals)   // livello a tinta unita / solid colour layer
             {
                 if (v.Type == 0x1c || v.Type == 0x1d)
                 {
@@ -493,10 +515,12 @@ namespace ApkShell
             var vals = table.Values(iconId);
 
             // 1) un bitmap per l'icona stessa (icona classica, densità più alta)
+            // 1) a bitmap for the icon itself (classic icon, highest density)
             string path = BestBitmapPath(table, vals, zip);
             if (path != null) return ApkIcon.Load(zip.GetEntry(path));
 
             // 2) icona adattiva: un XML con i livelli <background> e <foreground>
+            // 2) adaptive icon: an XML with the <background> and <foreground> layers
             foreach (Val v in vals)
             {
                 if (v.Type != TYPE_STRING) continue;
@@ -521,7 +545,7 @@ namespace ApkShell
                     using (var g = Graphics.FromImage(bmp))
                     {
                         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                        var r = new Rectangle(-size / 4, -size / 4, size * 3 / 2, size * 3 / 2);   // i 72dp centrali dei 108dp
+                        var r = new Rectangle(-size / 4, -size / 4, size * 3 / 2, size * 3 / 2);   // i 72dp centrali dei 108dp / the central 72dp of the 108dp
                         g.DrawImage(back, r);
                         g.DrawImage(front, r);
                     }
@@ -534,6 +558,9 @@ namespace ApkShell
 
     // Trova l'icona dell'APK: prima in modo esatto (ApkResolve), poi per nomi comuni se manifest e risorse
     // non si riescono a leggere.
+    //
+    // Finds the APK icon: first exactly (ApkResolve), then by common names if the manifest and resources
+    // cannot be read.
     static class ApkIcon
     {
         static readonly string[] Bases = { "ic_launcher", "icon", "app_icon", "appicon", "ic_app", "logo" };
@@ -566,6 +593,7 @@ namespace ApkShell
             var entries = zip.Entries.Where(e => e.FullName.StartsWith("res/", StringComparison.Ordinal)).ToList();
 
             // 1) icona bitmap classica, densità più alta
+            // 1) classic bitmap icon, highest density
             foreach (string b in Bases)
             {
                 var rx = new Regex("^res/[^/]+/" + Regex.Escape(b) + @"\.(png|webp|jpg)$", RegexOptions.IgnoreCase);
@@ -579,6 +607,7 @@ namespace ApkShell
             }
 
             // 2) icona adattiva a due livelli bitmap
+            // 2) adaptive icon with two bitmap layers
             foreach (string b in Bases)
             {
                 var rxFg = new Regex("^res/([^/]+)/" + Regex.Escape(b) + @"_foreground\.(png|webp)$", RegexOptions.IgnoreCase);
@@ -599,6 +628,7 @@ namespace ApkShell
                             {
                                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                                 // i livelli sono 108dp e se ne vedono 72 al centro: li disegno 1.5x
+                                // the layers are 108dp and 72dp are visible in the centre: they are drawn at 1.5x
                                 var r = new Rectangle(-size / 4, -size / 4, size * 3 / 2, size * 3 / 2);
                                 g.DrawImage(back, r);
                                 g.DrawImage(front, r);
@@ -611,6 +641,7 @@ namespace ApkShell
             }
 
             // 3) qualunque altro bitmap che somigli all'icona del launcher
+            // 3) any other bitmap that looks like the launcher icon
             var rxAny = new Regex(@"^res/[^/]+/([^/]*(launcher|app_?icon)[^/]*)\.(png|webp)$", RegexOptions.IgnoreCase);
             var any = entries.Where(e => { var m = rxAny.Match(e.FullName); return m.Success && !NotMain.IsMatch(m.Groups[1].Value); })
                              .OrderByDescending(e => Density(e.FullName)).ThenByDescending(e => e.Length)
@@ -633,6 +664,9 @@ namespace ApkShell
 
         // GDI+ non legge il WebP, WIC sì (se c'è il codec di Windows) e ci si arriva con WPF, che carico solo
         // quando serve, così gli APK solo PNG non lo portano nel processo.
+        //
+        // GDI+ cannot read WebP, WIC can (if the Windows codec is present) and it is reached through WPF, which I load only
+        // when needed, so PNG-only APKs do not bring it into the process.
         [MethodImpl(MethodImplOptions.NoInlining)]
         static Bitmap LoadWebp(MemoryStream ms)
         {

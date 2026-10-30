@@ -9,6 +9,14 @@
 #
 # Attenzione: a modalità sviluppatore accesa ADB accetta qualsiasi client senza chiedere, da questo PC e dalle reti
 # Private. Su reti di cui non ti fidi spegnila con -Disable.
+#
+# Turns WSA developer mode on (or off with -Disable) from its settings, and checks that ADB is
+# authorized. Developer mode opens WSA's ADB port (127.0.0.1:58526), which is needed to install APKs.
+# After the first WSA install, ADB may answer "unauthorized" without WSA showing any
+# prompt to accept: restarting WSA once is enough (it closes open Android apps). The script does this by itself,
+# only in that case, and without asking when -Force is given.
+# Warning: with developer mode on, ADB accepts any client without asking, from this PC and from the networks
+# with the Private profile. On networks you do not trust, turn it off with -Disable.
 [CmdletBinding()]
 param(
     [switch]$Disable,
@@ -47,10 +55,11 @@ function Find-ById($Root, [string]$Id) {
     $Root.FindFirst([Windows.Automation.TreeScope]::Descendants, (New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::AutomationIdProperty, $Id)))
 }
 
-# ---------- 1. interruttore ----------
+# ---------- 1. interruttore / 1. switch ----------
 $want = if ($Disable) { 'Off' } else { 'On' }
 
 # WSA si spegne da solo senza app aperte e da spento le sue impostazioni non si aprono: lo avvio prima
+# WSA shuts down by itself when no Android app is open, and its settings do not open while it is off: start it first
 if (-not (Get-Process vmmemWSA -ErrorAction SilentlyContinue)) {
     Say 'Starting WSA...'
     Start-Process -FilePath $WsaClient -ArgumentList '/launch', 'wsa://system' -WindowStyle Hidden
@@ -61,7 +70,7 @@ if (-not (Get-Process vmmemWSA -ErrorAction SilentlyContinue)) {
 Say "Opening WSA Settings to set Developer mode $want"
 $win = $null
 for ($attempt = 1; $attempt -le 2 -and -not $win; $attempt++) {
-    Stop-Process -Name WsaSettings -ErrorAction SilentlyContinue      # un'istanza rimasta nascosta non mostrerebbe mai la finestra
+    Stop-Process -Name WsaSettings -ErrorAction SilentlyContinue      # un'istanza rimasta nascosta non mostrerebbe mai la finestra / a leftover hidden instance would never show its window
     Start-Sleep -Milliseconds 800
     Start-Process explorer.exe "shell:appsFolder\$AppId!SettingsApp"
     [void](Wait-Until { $script:win = Get-SettingsWindow; [bool]$script:win } 40)
@@ -69,6 +78,7 @@ for ($attempt = 1; $attempt -le 2 -and -not $win; $attempt++) {
 if (-not $win) { throw 'The WSA Settings window did not appear. Open WSA once (any Android app), wait a few seconds and run this again.' }
 
 # l'interruttore sta in "Impostazioni avanzate" (AutomationId, uguali in tutte le lingue)
+# the switch is on the "Advanced settings" page (AutomationId, the same in every language)
 $nav = Find-ById $win 'LeftPaneAdvanced'
 $nav.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
 $toggle = $null
@@ -89,7 +99,7 @@ if ($Disable) {
     return
 }
 
-# ---------- 2. autorizzazione ADB ----------
+# ---------- 2. autorizzazione ADB / 2. ADB authorization ----------
 if (-not (Wait-Until { Test-Port } 30)) { throw "Developer mode is on but nothing listens on port $Port. Start WSA (open any Android app) and run this again." }
 if (-not (Test-Path $AdbPath)) { Say "adb.exe not found at ${AdbPath}, skipping the authorization check."; return }
 
@@ -109,6 +119,7 @@ function Get-AdbState {
 }
 
 # avvio il server adb senza aspettarlo (resta attivo in background)
+# start the adb server without waiting for it (it keeps running in the background)
 $srvPsi = New-Object Diagnostics.ProcessStartInfo $AdbPath, 'start-server'
 $srvPsi.UseShellExecute = $false; $srvPsi.CreateNoWindow = $true
 [void][Diagnostics.Process]::Start($srvPsi).WaitForExit(20000)

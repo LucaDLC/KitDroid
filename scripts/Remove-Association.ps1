@@ -1,4 +1,5 @@
 ﻿# Toglie tutto ciò che ha creato Register-Association.ps1 per l'utente corrente (solo HKCU).
+# Removes everything Register-Association.ps1 created for the current user (HKCU only).
 $ErrorActionPreference = 'Continue'
 $cls = 'HKCU:\Software\Classes'
 foreach ($k in '.apk',

@@ -1,8 +1,8 @@
 ﻿param(
     [Parameter(Position = 0)][string]$Apk,
-    [string]$Lang,               # forza una lingua, es. -Lang de (default: la lingua di Windows)
-    [string]$PreviewPng,         # salva il popup in questo PNG ed esce (per i test)
-    [string]$PreviewKey,         # con -PreviewPng: mostra anche questo messaggio nella zona di stato
+    [string]$Lang,               # forza una lingua, es. -Lang de (default: la lingua di Windows) / forces a language, e.g. -Lang de (default: the Windows language)
+    [string]$PreviewPng,         # salva il popup in questo PNG ed esce (per i test) / saves the popup to this PNG and exits (for tests)
+    [string]$PreviewKey,         # con -PreviewPng: mostra anche questo messaggio nella zona di stato / with -PreviewPng: also shows this message in the status area
     [switch]$ParseOnly
 )
 
@@ -17,9 +17,12 @@ $WsaClient = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\WsaClient.exe'
 $WsaAppId = 'MicrosoftCorporationII.WindowsSubsystemForAndroid_8wekyb3d8bbwe'
 $Endpoint = '127.0.0.1:58526'
 
-# ---------- language ----------
+# ---------- lingua / language ----------
 # I testi stanno in strings.json (accanto a questo script). Si usa la lingua di Windows, inglese se manca.
 # Si può forzare con -Lang o con la variabile WSA_APK_LANG.
+#
+# The texts are in strings.json (next to this script). The Windows language is used, English if it is missing.
+# It can be forced with -Lang or with the WSA_APK_LANG variable.
 $Strings = @{}
 try {
     $parsed = [IO.File]::ReadAllText((Join-Path $Root 'strings.json')) | ConvertFrom-Json
@@ -41,7 +44,7 @@ function Resolve-Language([string]$Wanted) {
     $hit = $keys | Where-Object { $_ -ieq $Wanted } | Select-Object -First 1
     if ($hit) { return $hit }
     $prefix = $Wanted.Split('-')[0].ToLowerInvariant()
-    if ($prefix -eq 'zh') {      # cinese: tradizionale per Taiwan, Hong Kong, Macao (o Hant esplicito), semplificato negli altri casi
+    if ($prefix -eq 'zh') {      # cinese: tradizionale per Taiwan, Hong Kong, Macao (o Hant esplicito), semplificato negli altri casi / Chinese: traditional for Taiwan, Hong Kong, Macau (or explicit Hant), simplified otherwise
         if ($Wanted -match '(?i)hant|-tw$|-hk$|-mo$') { return 'zh-Hant' }
         return 'zh-Hans'
     }
@@ -53,9 +56,11 @@ $LangCode = Resolve-Language $WantedLang
 $RightToLeft = @('ar', 'he', 'fa', 'ur') -contains $LangCode.Split('-')[0]
 
 # racchiude i pezzi in caratteri latini (ABI, indirizzo, API) così non si rimescolano nel testo da destra a sinistra
+# wraps the Latin-script pieces (ABI, address, API) so they do not get mixed up in right-to-left text
 function Isolate([string]$s) { ([string][char]0x2066) + $s + ([string][char]0x2069) }
 
 # Txt 'chiave' [argomenti]  ->  il testo nella lingua scelta ({0}, {1} presi dagli argomenti)
+# Txt 'key' [arguments]  ->  the text in the chosen language ({0}, {1} filled from the arguments)
 function Txt([string]$Key) {
     $s = $null
     if ($Strings.ContainsKey($LangCode)) { $s = $Strings[$LangCode][$Key] }
@@ -65,7 +70,7 @@ function Txt([string]$Key) {
     $s
 }
 
-# ---------- tool helpers ----------
+# ---------- funzioni di supporto / tool helpers ----------
 
 function ConvertTo-ArgLine([string[]]$Arguments) {
     ($Arguments | ForEach-Object {
@@ -93,7 +98,7 @@ function Invoke-Tool([string]$File, [string[]]$Arguments) {
     @{ Out = $j.OutTask.Result; Err = $j.ErrTask.Result; Code = $j.Proc.ExitCode }
 }
 
-# ---------- APK parsing ----------
+# ---------- analisi dell'APK / APK parsing ----------
 
 function Get-ApkInfo([string]$Path) {
     $r = Invoke-Tool $Aapt2 @('dump', 'badging', $Path)
@@ -107,7 +112,7 @@ function Get-ApkInfo([string]$Path) {
     $package = $m.Groups[1].Value
     $version = $m.Groups[3].Value
 
-    $ui = $WantedLang          # il nome dell'app lo prendo nella stessa lingua del popup
+    $ui = $WantedLang          # il nome dell'app lo prendo nella stessa lingua del popup / the app name is taken in the same language as the popup
     if (-not $ui) { $ui = 'en' }
     $label = $null
     foreach ($c in @("application-label-$ui", "application-label-$($ui.Split('-')[0])", 'application-label')) {
@@ -139,7 +144,7 @@ function Get-ApkInfo([string]$Path) {
     }
 }
 
-# ---------- icon extraction ----------
+# ---------- estrazione dell'icona / icon extraction ----------
 
 function Read-ZipEntry($Entry) {
     $s = $Entry.Open()
@@ -172,6 +177,7 @@ function New-CompositeIcon([byte[]]$Background, [byte[]]$Foreground) {
     $dv = New-Object Windows.Media.DrawingVisual
     $dc = $dv.RenderOpen()
     # i livelli sono 108dp e se ne vedono 72 al centro: li disegno 1.5x
+    # the layers are 108dp and 72dp are visible in the centre: they are drawn at 1.5x
     $rect = New-Object Windows.Rect (-0.25 * $size), (-0.25 * $size), (1.5 * $size), (1.5 * $size)
     foreach ($b in @($Background, $Foreground)) { $dc.DrawImage((ConvertTo-BitmapImage $b), $rect) }
     $dc.Close()
@@ -208,6 +214,7 @@ function Get-ApkIcon($Info, [string]$Path, [string]$Accent) {
         $bases = $bases | Select-Object -Unique
 
         # 1) icona bitmap con lo stesso nome di quella del manifest, densità più alta
+        # 1) bitmap icon with the same name as the manifest icon, highest density
         foreach ($b in $bases) {
             $rx = '^res/[^/]+/' + [regex]::Escape($b) + '\.(png|webp|jpg)$'
             $best = $entries | Where-Object { $_.FullName -match $rx } |
@@ -218,6 +225,7 @@ function Get-ApkIcon($Info, [string]$Path, [string]$Accent) {
             }
         }
         # 2) icona adattiva a due livelli
+        # 2) adaptive icon with two layers
         foreach ($b in $bases) {
             $rxFg = '^res/([^/]+)/' + [regex]::Escape($b) + '_foreground\.(png|webp)$'
             $fgs = $entries | Where-Object { $_.FullName -match $rxFg } |
@@ -232,6 +240,7 @@ function Get-ApkIcon($Info, [string]$Path, [string]$Accent) {
         }
     } finally { $zip.Dispose() }
     # nessuna icona utilizzabile nell'APK: il robot
+    # no usable icon in the APK: the robot
     $droid = Join-Path $Root 'droid.png'
     if (Test-Path $droid) {
         try { return ConvertTo-BitmapImage ([IO.File]::ReadAllBytes($droid)) } catch { }
@@ -239,7 +248,7 @@ function Get-ApkIcon($Info, [string]$Path, [string]$Accent) {
     New-PlaceholderIcon $Info.Label $Accent
 }
 
-# ---------- theme ----------
+# ---------- tema / theme ----------
 
 $light = $true
 try { $light = [bool](Get-ItemPropertyValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name AppsUseLightTheme) } catch { }
@@ -249,7 +258,7 @@ if ($light) {
     $T = @{ BG = '#1F1F23'; FG = '#F2F2F5'; MUTED = '#A0A0AC'; ICONBG = '#2C2C32'; BTN = '#2C2C32'; BORDER = '#3A3A42'; ACCENT = '#2FB574'; ACCENTFG = '#08150E'; WARNBG = '#3A2E14'; WARNFG = '#F0C674'; OKFG = '#4CD08C'; ERRFG = '#FF8A80' }
 }
 
-# ---------- pick the APK ----------
+# ---------- scelta dell'APK / pick the APK ----------
 
 if (-not $Apk) {
     $dlg = New-Object Microsoft.Win32.OpenFileDialog
@@ -275,7 +284,7 @@ if ($ParseOnly) {
 
 $icon = Get-ApkIcon $info $Apk $T.ACCENT
 
-# ---------- dialog ----------
+# ---------- finestra / dialog ----------
 
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -384,7 +393,7 @@ if ($info.Abis.Count -gt 0 -and -not ($info.Abis -contains 'x86_64' -or $info.Ab
     $C.WarnBox.Visibility = 'Visible'
 }
 
-# ---------- preview mode (render to PNG, no window) ----------
+# ---------- modalità anteprima (PNG, senza finestra) / preview mode (PNG, no window) ----------
 
 if ($PreviewPng) {
     if ($PreviewKey) {
@@ -410,7 +419,7 @@ if ($PreviewPng) {
     exit 0
 }
 
-# ---------- dark title bar ----------
+# ---------- barra del titolo scura / dark title bar ----------
 
 if (-not $light) {
     Add-Type -Namespace Win32 -Name Dwm -MemberDefinition '[System.Runtime.InteropServices.DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(System.IntPtr hwnd, int attr, ref int value, int size);'
@@ -421,7 +430,7 @@ if (-not $light) {
     })
 }
 
-# ---------- install flow ----------
+# ---------- flusso di installazione / install flow ----------
 
 $script:State = 'confirm'
 $script:Job = $null
@@ -488,6 +497,7 @@ function Show-NoWsa {
 }
 
 # accende la modalità sviluppatore di WSA (e riavvia WSA se serve), poi riprova
+# turns on WSA developer mode (and restarts WSA if needed), then retries
 function Start-EnableDevMode {
     $enable = Join-Path $Root 'Enable-WsaDeveloperMode.ps1'
     if (-not (Test-Path $enable)) { Start-Process explorer.exe "shell:appsFolder\$WsaAppId!SettingsApp"; return }
@@ -555,10 +565,11 @@ function Start-Flow {
     $C.Question.Visibility = 'Collapsed'
     $C.BtnExtra.Visibility = 'Collapsed'
     $C.BtnYes.IsEnabled = $false
-    if (-not (Test-Path $WsaClient)) { Show-NoWsa; return }       # l'alias WsaClient esiste solo se WSA è installata
+    if (-not (Test-Path $WsaClient)) { Show-NoWsa; return }       # l'alias WsaClient esiste solo se WSA è installata / the WsaClient alias exists only if WSA is installed
     Show-Status (Txt 'status_start_wsa') $true
     $script:W.Dispatcher.Invoke([Action] {}, 'Render')
     # non Start-Process -Wait: aspetterebbe anche il demone adb, che resta attivo
+    # not Start-Process -Wait: it would also wait for the adb daemon, which stays alive
     $psi = New-Object Diagnostics.ProcessStartInfo $Adb, 'start-server'
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true

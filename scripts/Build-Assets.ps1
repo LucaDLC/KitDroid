@@ -1,6 +1,10 @@
 ﻿# Disegna le immagini col robot Android, senza file esterni:
 #   apk.ico    icona dei file .apk e del launcher (quadrato blu arrotondato, robot verde)
 #   droid.png  quadrato 512px, mostrato nel popup quando l'APK non ha un'icona sua
+#
+# Draws the images with the Android robot, without external files:
+# apk.ico    icon for .apk files and the launcher (rounded blue square, green robot)
+# droid.png  512px square, shown in the popup when the APK has no icon of its own
 param(
     [Parameter(Mandatory)][string]$OutDir
 )
@@ -12,6 +16,7 @@ $navy  = [Drawing.ColorTranslator]::FromHtml('#073042')
 $green = [Drawing.ColorTranslator]::FromHtml('#3DDC84')
 
 # testa del robot, con le coordinate di un'immagine di riferimento 1000x600
+# robot head, using the coordinates of a 1000x600 reference image
 function New-RobotBitmap([int]$size, [bool]$rounded = $true) {
     $bmp = New-Object Drawing.Bitmap $size, $size, ([Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [Drawing.Graphics]::FromImage($bmp)
@@ -33,18 +38,19 @@ function New-RobotBitmap([int]$size, [bool]$rounded = $true) {
     }
 
     # il robot sta in 330..670 x 150..345: lo centro e lo scalo al 66% dell'icona
+    # the robot fits in 330..670 x 150..345: it is centred and scaled to 66% of the icon
     $k = 0.66 * $size / 340.0
     $g.TranslateTransform($size / 2.0, $size / 2.0)
     $g.ScaleTransform($k, $k)
     $g.TranslateTransform(-500, -247.5)
 
-    $g.FillPie((New-Object Drawing.SolidBrush $green), 330, 187, 340, 310, 180, 180)     # testa
+    $g.FillPie((New-Object Drawing.SolidBrush $green), 330, 187, 340, 310, 180, 180)     # testa / head
     $navyBrush = New-Object Drawing.SolidBrush $navy
-    $g.FillEllipse($navyBrush, 423 - 14, 278 - 14, 28, 28)                                # occhi
+    $g.FillEllipse($navyBrush, 423 - 14, 278 - 14, 28, 28)                                # occhi / eyes
     $g.FillEllipse($navyBrush, 578 - 14, 278 - 14, 28, 28)
     $pen = New-Object Drawing.Pen $green, 13
     $pen.StartCap = 'Round'; $pen.EndCap = 'Round'
-    $g.DrawLine($pen, 392, 157, 424, 202)                                                 # antenne
+    $g.DrawLine($pen, 392, 157, 424, 202)                                                 # antenne / antennas
     $g.DrawLine($pen, 606, 157, 574, 202)
     $g.Dispose()
     $bmp
