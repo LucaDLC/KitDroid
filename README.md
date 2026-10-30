@@ -253,3 +253,7 @@ then delete its folder.
 - After changes: check syntax, run `Test-Translations.ps1`, then `Uninstall.ps1` and `Setup.ps1` from a clean state.
 - If you touch the registry, update `Register-Association.ps1` and `Remove-Association.ps1` together.
 - Changing a visible text means updating every language in `strings.json`.
+
+## License
+
+KitDroid is released under the MIT License. See [LICENSE](LICENSE).
