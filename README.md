@@ -106,7 +106,7 @@ The install dialog does all this by itself through its **Turn on and retry** but
 
 ### Security
 
-While developer mode is on, WSA accepts ADB connections without asking, from this PC and from other machines on networks with the **Private** profile (WSA's own firewall rule opens port 58526 there). Turn it off on networks you do not trust.
+While developer mode is on, WSA accepts ADB connections without asking, from the same machine and from other machines on networks with the **Private** profile (WSA's own firewall rule opens port 58526 there). Turn it off on networks you do not trust.
 
 Windows may also create an inbound firewall rule for `adb.exe` the first time the ADB server runs. KitDroid neither creates nor removes it. To remove it, from an administrator PowerShell:
 
